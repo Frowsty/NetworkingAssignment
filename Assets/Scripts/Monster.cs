@@ -1,3 +1,4 @@
+using System;
 using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
@@ -7,29 +8,26 @@ public class Monster : NetworkBehaviour
 {
     private ObjectPool<Monster> monster_pool;
     private Player[] players;
-    private MonsterSpawner monster_spawner;
-
+    
     public int monsterID = 0;
     
     public int health;
     public int current_health = 0;
     public int damage = 3;
+    
+    public NetworkObject myNetworkObject;
 
     void Start()
-    {      
-        monster_spawner = GameObject.Find("MonsterSpawner").GetComponent<MonsterSpawner>();
+    {
         players = GameObject.FindObjectsByType<Player>(FindObjectsSortMode.None);
-        
-        if (!monster_spawner)
-            Debug.Log("Monster spawner missing");
+        myNetworkObject = GetComponent<NetworkObject>();
     }
     
     
     private void onDeath()
     {
-        monster_spawner.RemoveMonster(monsterID);
         monster_pool.Release(this);
-        monster_spawner.decreaseSpawnedMonsters();
+        myNetworkObject.Despawn(false);
     }
     
     public void takeDamage(int damage)
@@ -49,4 +47,9 @@ public class Monster : NetworkBehaviour
     
     public void setHealth(int value) => current_health = value;
     public int getMaxHealth() => health;
+
+    private void OnCollisionEnter2D(Collision2D other)
+    {
+        Debug.Log("Collision detected");
+    }
 }

@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using TMPro;
 using Unity.Collections;
 using Unity.Netcode;
@@ -12,26 +11,20 @@ public class Player : NetworkBehaviour
     public NetworkVariable<int> m_CurrentHealth = new NetworkVariable<int>(100, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
     
     private TextMeshProUGUI textMeshPro;
-    
-    ulong hostID = ulong.MinValue;
+
+    private float lastDamageTaken = 0f;
 
     public override void OnNetworkSpawn()
     {
         NetworkManager.Singleton.CustomMessagingManager.RegisterNamedMessageHandler("SendMessage", ReceiveMessage);
-
-        if (IsHost)
-            hostID = NetworkObjectId;
         
         if (IsOwner)
         {
             m_CurrentHealth.Value = m_MaxHealth.Value;
             TilemapManager.Instance.player = this;
             TilemapManager.Instance.GenerateTiles();
-            
-            Debug.Log("I'm the owner");
         }
         textMeshPro = GameObject.FindFirstObjectByType<TextMeshProUGUI>();
-        Debug.Log("Player spawned");
     }
 
     public void ReceiveMessage(ulong senderId, FastBufferReader reader)
@@ -62,11 +55,13 @@ public class Player : NetworkBehaviour
             writer.WriteValueSafe(message);
             
             textMeshPro.text = "You sent: " + message.Split("-")[1];
-
-            if (IsHost)
-                manager.SendNamedMessage("SendMessage", NetworkManager.Singleton.ConnectedClientsIds[NetworkManager.Singleton.ConnectedClientsIds.Count - 1],writer, NetworkDelivery.Reliable);
-            else
-                manager.SendNamedMessage("SendMessage", hostID, writer, NetworkDelivery.Reliable);
+    
+            foreach (ulong clientID in NetworkManager.Singleton.ConnectedClientsIds)
+            {
+                if (clientID == OwnerClientId) continue; // don't send message to yourself
+                manager.SendNamedMessage("SendMessage", clientID, writer, NetworkDelivery.Reliable);
+            }
+            
         }
     }
 
@@ -76,12 +71,33 @@ public class Player : NetworkBehaviour
 
         textMeshPro.text = "";
     }
+    
+    
+    [ClientRpc]
+    public void TakeDamageClientRpc(ulong clientID)
+    {
+        if (clientID != OwnerClientId || !IsOwner) return; 
+        if (Time.time - lastDamageTaken < 1.5f) return;
+        
+        m_CurrentHealth.Value -= 5;
+        lastDamageTaken = Time.time;
+        
+        if (m_CurrentHealth.Value <= 0)
+            PlayerDeathServerRpc(clientID);
+    }
+
+    [ServerRpc]
+    private void PlayerDeathServerRpc(ulong clientID)
+    {
+        foreach (var client in NetworkManager.Singleton.ConnectedClients)
+        {
+            if (client.Key == clientID)
+                client.Value.PlayerObject.Despawn();
+        }
+    }
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Space) && (IsClient && IsOwner))
-            m_CurrentHealth.Value -= 10;
-
         if (Input.GetKeyDown(KeyCode.T) && IsOwner)
         {
             SendMessage();
